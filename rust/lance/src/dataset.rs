@@ -482,6 +482,10 @@ impl Dataset {
         }
 
         let object_store = Arc::new(object_store);
+<<<<<<< HEAD
+=======
+
+>>>>>>> 48f0abf2 (wip: remove more proto refs)
         let fragments = write_fragments_internal(
             dataset.as_ref(),
             object_store.clone(),
