@@ -482,7 +482,6 @@ impl Dataset {
         }
 
         let object_store = Arc::new(object_store);
-
         let fragments = write_fragments_internal(
             dataset.as_ref(),
             object_store.clone(),
@@ -1143,11 +1142,11 @@ impl Dataset {
     /// Get all tags.
     pub async fn tags(&self) -> Result<Vec<Tag>> {
         let tag_names = self.object_store().read_dir("tags").await.unwrap();
-        let tags = Vec::<Tag>::new();
+        let mut tags = Vec::<Tag>::new();
 
         for n in tag_names.iter() {
             tags.push(Tag {
-                name: n,
+                name: n.to_owned(),
                 version: 1,
                 manifest_size: 0,
             })
