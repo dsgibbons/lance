@@ -1078,9 +1078,15 @@ impl Dataset {
             });
         }
 
+        let base_path = self.base.clone();
+        let manifest_file = self
+            .commit_handler
+            .resolve_version(&base_path, version, &self.object_store.inner)
+            .await?;
+
         let tag_contents = TagContents {
             version,
-            manifest_size: 0,
+            manifest_size: self.object_store().size(&manifest_file).await?,
         };
 
         self.object_store()
@@ -1168,13 +1174,19 @@ impl Dataset {
         let mut tags = HashMap::<String, TagContents>::new();
 
         for n in tag_names.iter() {
-            tags.insert(
-                (*n).clone(),
-                TagContents {
-                    version: 1,
-                    manifest_size: 0,
-                },
-            );
+            let tag_reader = self
+                .object_store()
+                .open(&Path::parse(format!("tags/{}", n))?)
+                .await?;
+            let tag_bytes = tag_reader
+                .get_range(Range {
+                    start: 0,
+                    end: tag_reader.size().await?,
+                })
+                .await?;
+            let tag_contents: TagContents =
+                serde_json::from_str(String::from_utf8(tag_bytes.to_vec()).unwrap().as_str())?;
+            tags.insert((*n).clone(), tag_contents);
         }
 
         Ok(tags)
