@@ -54,7 +54,7 @@ use self::builder::DatasetBuilder;
 use self::cleanup::RemovalStats;
 use self::fragment::FileFragment;
 use self::scanner::{DatasetRecordBatchStream, Scanner};
-use self::tag::Tag;
+use self::tag::TagContents;
 use self::transaction::{Operation, Transaction};
 use self::write::write_fragments_internal;
 use crate::datatypes::Schema;
@@ -1063,19 +1063,42 @@ impl Dataset {
     }
 
     pub async fn create_tag(&mut self, tag: &str, version: u64) -> Result<()> {
+        let tag_path = Path::parse(format!("tags/{}", tag))?;
+
+        if self.object_store().exists(&tag_path).await? {
+            return Err(Error::TagConflict {
+                message: format!("tag {} already exists", tag),
+            });
+        }
+
         let versions = self.versions().await;
         if !versions?.iter().any(|v| v.version == version) {
             return Err(Error::VersionNotFound {
                 message: format!("version {} does not exist", version),
             });
         }
-        Ok(())
+
+        let tag_contents = TagContents {
+            version,
+            manifest_size: 0,
+        };
+
+        self.object_store()
+            .put(
+                &tag_path,
+                serde_json::to_string_pretty(&tag_contents)?.as_bytes(),
+            )
+            .await
     }
 
     pub async fn delete_tag(&mut self, tag: &str) -> Result<()> {
-        Err(Error::TagNotFound {
-            message: format!("tag {} does not exist", tag),
-        })
+        let path = Path::parse(format!("tags/{}", tag))?;
+        match self.object_store().delete(&path).await {
+            Ok(_) => Ok(()),
+            Err(_) => Err(Error::TagNotFound {
+                message: format!("tag {} does not exist", tag),
+            }),
+        }
     }
 
     pub(crate) fn object_store(&self) -> &ObjectStore {
@@ -1140,16 +1163,18 @@ impl Dataset {
     }
 
     /// Get all tags.
-    pub async fn tags(&self) -> Result<Vec<Tag>> {
+    pub async fn tags(&self) -> Result<HashMap<String, TagContents>> {
         let tag_names = self.object_store().read_dir("tags").await.unwrap();
-        let mut tags = Vec::<Tag>::new();
+        let mut tags = HashMap::<String, TagContents>::new();
 
         for n in tag_names.iter() {
-            tags.push(Tag {
-                name: n.to_owned(),
-                version: 1,
-                manifest_size: 0,
-            })
+            tags.insert(
+                (*n).clone(),
+                TagContents {
+                    version: 1,
+                    manifest_size: 0,
+                },
+            );
         }
 
         Ok(tags)
@@ -2871,7 +2896,19 @@ mod tests {
             "Tag not found error: tag v3 does not exist"
         );
 
-        // dataset.create_tag("v1", 1).await;
+        dataset.create_tag("v1", 1).await.unwrap();
+
+        // assert_eq!(dataset.tags().await.unwrap().len(), 1);
+
+        // let another_bad_tag_creation = dataset.create_tag("v1", 1).await;
+        // assert_eq!(
+        //     another_bad_tag_creation.err().unwrap().to_string(),
+        //     "Tag conflict error: tag v1 already exists"
+        // );
+
+        // dataset.delete_tag("v1").await.unwrap();
+
+        // dataset.create_tag("v1", 1).await.unwrap();
 
         // assert_eq!(dataset.tags().await.unwrap().len(), 1);
     }

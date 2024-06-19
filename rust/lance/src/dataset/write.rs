@@ -26,7 +26,7 @@ use crate::Dataset;
 
 use super::builder::DatasetBuilder;
 use super::progress::{NoopFragmentWriteProgress, WriteFragmentProgress};
-use super::tag::Tag;
+use super::tag::TagContents;
 use super::DATA_DIR;
 
 pub mod merge_insert;
@@ -274,7 +274,7 @@ pub async fn write_fragments_internal(
 }
 
 pub async fn write_tag(
-    tag: Tag,
+    tag: TagContents,
     object_store: Arc<ObjectStore>,
     base_dir: &Path,
     mut params: WriteParams,
