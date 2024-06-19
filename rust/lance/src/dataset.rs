@@ -1170,7 +1170,7 @@ impl Dataset {
 
     /// Get all tags.
     pub async fn tags(&self) -> Result<HashMap<String, TagContents>> {
-        let tag_names = self.object_store().read_dir("tags").await.unwrap();
+        let tag_names = self.object_store().read_dir("tags").await?;
         let mut tags = HashMap::<String, TagContents>::new();
 
         for n in tag_names.iter() {
