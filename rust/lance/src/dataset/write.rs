@@ -273,15 +273,6 @@ pub async fn write_fragments_internal(
     Ok(fragments)
 }
 
-pub async fn write_tag(
-    tag: TagContents,
-    object_store: Arc<ObjectStore>,
-    base_dir: &Path,
-    mut params: WriteParams,
-) -> Result<()> {
-    unimplemented!("not implemented yet")
-}
-
 #[async_trait::async_trait]
 pub trait GenericWriter: Send {
     /// Get a unique id associated with the fragment being written

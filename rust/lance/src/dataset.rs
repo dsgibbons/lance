@@ -1063,7 +1063,7 @@ impl Dataset {
     }
 
     pub async fn create_tag(&mut self, tag: &str, version: u64) -> Result<()> {
-        let tag_path = Path::parse(format!("tags/{}", tag))?;
+        let tag_path = self.base.child("_tags").child(tag);
 
         if self.object_store().exists(&tag_path).await? {
             return Err(Error::TagConflict {
@@ -1098,7 +1098,7 @@ impl Dataset {
     }
 
     pub async fn delete_tag(&mut self, tag: &str) -> Result<()> {
-        let path = Path::parse(format!("tags/{}", tag))?;
+        let path = self.base.child("_tags").child(tag);
         match self.object_store().delete(&path).await {
             Ok(_) => Ok(()),
             Err(_) => Err(Error::TagNotFound {
@@ -1170,14 +1170,15 @@ impl Dataset {
 
     /// Get all tags.
     pub async fn tags(&self) -> Result<HashMap<String, TagContents>> {
-        let tag_names = self.object_store().read_dir("tags").await?;
+        let tag_names = self
+            .object_store()
+            .read_dir(self.base.child("_tags"))
+            .await?;
         let mut tags = HashMap::<String, TagContents>::new();
 
         for n in tag_names.iter() {
-            let tag_reader = self
-                .object_store()
-                .open(&Path::parse(format!("tags/{}", n))?)
-                .await?;
+            let tag_path = self.base.child("_tags").child(n.as_str());
+            let tag_reader = self.object_store().open(&tag_path).await?;
             let tag_bytes = tag_reader
                 .get_range(Range {
                     start: 0,
@@ -2910,19 +2911,19 @@ mod tests {
 
         dataset.create_tag("v1", 1).await.unwrap();
 
-        // assert_eq!(dataset.tags().await.unwrap().len(), 1);
+        assert_eq!(dataset.tags().await.unwrap().len(), 1);
 
-        // let another_bad_tag_creation = dataset.create_tag("v1", 1).await;
-        // assert_eq!(
-        //     another_bad_tag_creation.err().unwrap().to_string(),
-        //     "Tag conflict error: tag v1 already exists"
-        // );
+        let another_bad_tag_creation = dataset.create_tag("v1", 1).await;
+        assert_eq!(
+            another_bad_tag_creation.err().unwrap().to_string(),
+            "Tag conflict error: tag v1 already exists"
+        );
 
-        // dataset.delete_tag("v1").await.unwrap();
+        dataset.delete_tag("v1").await.unwrap();
 
-        // dataset.create_tag("v1", 1).await.unwrap();
+        dataset.create_tag("v1", 1).await.unwrap();
 
-        // assert_eq!(dataset.tags().await.unwrap().len(), 1);
+        assert_eq!(dataset.tags().await.unwrap().len(), 1);
     }
 
     #[rstest]
