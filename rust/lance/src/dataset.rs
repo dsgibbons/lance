@@ -302,8 +302,18 @@ impl Dataset {
     }
 
     /// Check out the specified tagged version of this dataset
-    pub async fn checkout_tag(&self, tag: String) -> Result<Self> {
-        !unimplemented!("not implemented yet")
+    pub async fn checkout_tag(&self, tag: &str) -> Result<Self> {
+        let tag_path = self.base.child("_tags").child(tag);
+
+        if !self.object_store().exists(&tag_path).await? {
+            return Err(Error::TagNotFound {
+                message: format!("tag {} does not exist", tag),
+            });
+        }
+
+        let tag_contents = TagContents::from_path(&tag_path, self.object_store()).await?;
+
+        self.checkout_version(tag_contents.version).await
     }
 
     async fn load_manifest(
@@ -1178,16 +1188,10 @@ impl Dataset {
 
         for n in tag_names.iter() {
             let tag_path = self.base.child("_tags").child(n.as_str());
-            let tag_reader = self.object_store().open(&tag_path).await?;
-            let tag_bytes = tag_reader
-                .get_range(Range {
-                    start: 0,
-                    end: tag_reader.size().await?,
-                })
-                .await?;
-            let tag_contents: TagContents =
-                serde_json::from_str(String::from_utf8(tag_bytes.to_vec()).unwrap().as_str())?;
-            tags.insert((*n).clone(), tag_contents);
+            tags.insert(
+                (*n).clone(),
+                TagContents::from_path(&tag_path, self.object_store()).await?,
+            );
         }
 
         Ok(tags)
@@ -2924,6 +2928,15 @@ mod tests {
         dataset.create_tag("v1", 1).await.unwrap();
 
         assert_eq!(dataset.tags().await.unwrap().len(), 1);
+
+        let bad_checkout = dataset.checkout_tag("v3").await;
+        assert_eq!(
+            bad_checkout.err().unwrap().to_string(),
+            "Tag not found error: tag v3 does not exist"
+        );
+
+        dataset = dataset.checkout_tag("v1").await.unwrap();
+        assert_eq!(dataset.manifest.version, 1);
     }
 
     #[rstest]
