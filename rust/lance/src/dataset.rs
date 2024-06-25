@@ -40,10 +40,10 @@ mod hash_joiner;
 pub mod index;
 pub mod optimize;
 pub mod progress;
+pub mod refs;
 mod rowids;
 pub mod scanner;
 mod schema_evolution;
-pub mod tag;
 mod take;
 pub mod transaction;
 pub mod updater;
@@ -53,8 +53,8 @@ mod write;
 use self::builder::DatasetBuilder;
 use self::cleanup::RemovalStats;
 use self::fragment::FileFragment;
+use self::refs::{get_base_tags_path, get_tag_path, TagContents};
 use self::scanner::{DatasetRecordBatchStream, Scanner};
-use self::tag::TagContents;
 use self::transaction::{Operation, Transaction};
 use self::write::write_fragments_internal;
 use crate::datatypes::Schema;
@@ -303,7 +303,7 @@ impl Dataset {
 
     /// Check out the specified tagged version of this dataset
     pub async fn checkout_tag(&self, tag: &str) -> Result<Self> {
-        let tag_path = self.base.child("_tags").child(tag);
+        let tag_path = get_tag_path(&self.base, tag);
 
         if !self.object_store().exists(&tag_path).await? {
             return Err(Error::TagNotFound {
@@ -1073,7 +1073,7 @@ impl Dataset {
     }
 
     pub async fn create_tag(&mut self, tag: &str, version: u64) -> Result<()> {
-        let tag_path = self.base.child("_tags").child(tag);
+        let tag_path = get_tag_path(&self.base, tag);
 
         if self.object_store().exists(&tag_path).await? {
             return Err(Error::TagConflict {
@@ -1108,7 +1108,7 @@ impl Dataset {
     }
 
     pub async fn delete_tag(&mut self, tag: &str) -> Result<()> {
-        let path = self.base.child("_tags").child(tag);
+        let path = get_tag_path(&self.base, tag);
         match self.object_store().delete(&path).await {
             Ok(_) => Ok(()),
             Err(_) => Err(Error::TagNotFound {
@@ -1182,12 +1182,12 @@ impl Dataset {
     pub async fn tags(&self) -> Result<HashMap<String, TagContents>> {
         let tag_names = self
             .object_store()
-            .read_dir(self.base.child("_tags"))
+            .read_dir(get_base_tags_path(&self.base))
             .await?;
         let mut tags = HashMap::<String, TagContents>::new();
 
         for n in tag_names.iter() {
-            let tag_path = self.base.child("_tags").child(n.as_str());
+            let tag_path = get_tag_path(&self.base, n.as_str());
             tags.insert(
                 (*n).clone(),
                 TagContents::from_path(&tag_path, self.object_store()).await?,

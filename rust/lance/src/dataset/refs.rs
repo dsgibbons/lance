@@ -7,9 +7,18 @@ use serde::{Deserialize, Serialize};
 use crate::Result;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TagContents {
     pub version: u64,
     pub manifest_size: usize,
+}
+
+pub fn get_base_tags_path(base_path: &Path) -> Path {
+    base_path.child("_refs").child("tags")
+}
+
+pub fn get_tag_path(base_path: &Path, tag: &str) -> Path {
+    get_base_tags_path(base_path).child(format!("{}.json", tag))
 }
 
 impl TagContents {
