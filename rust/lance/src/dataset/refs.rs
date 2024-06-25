@@ -13,12 +13,12 @@ pub struct TagContents {
     pub manifest_size: usize,
 }
 
-pub fn get_base_tags_path(base_path: &Path) -> Path {
+pub fn base_tags_path(base_path: &Path) -> Path {
     base_path.child("_refs").child("tags")
 }
 
-pub fn get_tag_path(base_path: &Path, tag: &str) -> Path {
-    get_base_tags_path(base_path).child(format!("{}.json", tag))
+pub fn tag_path(base_path: &Path, tag: &str) -> Path {
+    base_tags_path(base_path).child(format!("{}.json", tag))
 }
 
 impl TagContents {

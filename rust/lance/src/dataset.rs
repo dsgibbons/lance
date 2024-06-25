@@ -53,7 +53,7 @@ mod write;
 use self::builder::DatasetBuilder;
 use self::cleanup::RemovalStats;
 use self::fragment::FileFragment;
-use self::refs::{get_base_tags_path, get_tag_path, TagContents};
+use self::refs::{base_tags_path, tag_path, TagContents};
 use self::scanner::{DatasetRecordBatchStream, Scanner};
 use self::transaction::{Operation, Transaction};
 use self::write::write_fragments_internal;
@@ -303,15 +303,15 @@ impl Dataset {
 
     /// Check out the specified tagged version of this dataset
     pub async fn checkout_tag(&self, tag: &str) -> Result<Self> {
-        let tag_path = get_tag_path(&self.base, tag);
+        let tag_file = tag_path(&self.base, tag);
 
-        if !self.object_store().exists(&tag_path).await? {
+        if !self.object_store().exists(&tag_file).await? {
             return Err(Error::TagNotFound {
                 message: format!("tag {} does not exist", tag),
             });
         }
 
-        let tag_contents = TagContents::from_path(&tag_path, self.object_store()).await?;
+        let tag_contents = TagContents::from_path(&tag_file, self.object_store()).await?;
 
         self.checkout_version(tag_contents.version).await
     }
@@ -1073,26 +1073,24 @@ impl Dataset {
     }
 
     pub async fn create_tag(&mut self, tag: &str, version: u64) -> Result<()> {
-        let tag_path = get_tag_path(&self.base, tag);
+        let tag_file = tag_path(&self.base, tag);
 
-        if self.object_store().exists(&tag_path).await? {
+        if self.object_store().exists(&tag_file).await? {
             return Err(Error::TagConflict {
                 message: format!("tag {} already exists", tag),
             });
         }
 
-        let versions = self.versions().await;
-        if !versions?.iter().any(|v| v.version == version) {
+        let manifest_file = self
+            .commit_handler
+            .resolve_version(&self.base, version, &self.object_store.inner)
+            .await?;
+
+        if !self.object_store().exists(&manifest_file).await? {
             return Err(Error::VersionNotFound {
                 message: format!("version {} does not exist", version),
             });
         }
-
-        let base_path = self.base.clone();
-        let manifest_file = self
-            .commit_handler
-            .resolve_version(&base_path, version, &self.object_store.inner)
-            .await?;
 
         let tag_contents = TagContents {
             version,
@@ -1101,20 +1099,22 @@ impl Dataset {
 
         self.object_store()
             .put(
-                &tag_path,
+                &tag_file,
                 serde_json::to_string_pretty(&tag_contents)?.as_bytes(),
             )
             .await
     }
 
     pub async fn delete_tag(&mut self, tag: &str) -> Result<()> {
-        let path = get_tag_path(&self.base, tag);
-        match self.object_store().delete(&path).await {
-            Ok(_) => Ok(()),
-            Err(_) => Err(Error::TagNotFound {
+        let tag_file = tag_path(&self.base, tag);
+
+        if !self.object_store().exists(&tag_file).await? {
+            return Err(Error::TagNotFound {
                 message: format!("tag {} does not exist", tag),
-            }),
+            });
         }
+
+        self.object_store().delete(&tag_file).await
     }
 
     pub(crate) fn object_store(&self) -> &ObjectStore {
@@ -1184,12 +1184,12 @@ impl Dataset {
 
         let tag_names = self
             .object_store()
-            .read_dir(get_base_tags_path(&self.base))
+            .read_dir(base_tags_path(&self.base))
             .await?;
 
         for n in tag_names.iter() {
             let tag_name = n.strip_suffix(".json").unwrap();
-            let tag_path = get_tag_path(&self.base, tag_name);
+            let tag_path = tag_path(&self.base, tag_name);
             tags.insert(
                 tag_name.to_string(),
                 TagContents::from_path(&tag_path, self.object_store()).await?,
