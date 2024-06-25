@@ -1180,16 +1180,18 @@ impl Dataset {
 
     /// Get all tags.
     pub async fn tags(&self) -> Result<HashMap<String, TagContents>> {
+        let mut tags = HashMap::<String, TagContents>::new();
+
         let tag_names = self
             .object_store()
             .read_dir(get_base_tags_path(&self.base))
             .await?;
-        let mut tags = HashMap::<String, TagContents>::new();
 
         for n in tag_names.iter() {
-            let tag_path = get_tag_path(&self.base, n.as_str());
+            let tag_name = n.strip_suffix(".json").unwrap();
+            let tag_path = get_tag_path(&self.base, tag_name);
             tags.insert(
-                (*n).clone(),
+                tag_name.to_string(),
                 TagContents::from_path(&tag_path, self.object_store()).await?,
             );
         }
