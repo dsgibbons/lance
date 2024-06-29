@@ -88,7 +88,7 @@ pub enum Error {
     TagConflict { message: String },
     #[snafu(display("Tag not found error: {message}"))]
     TagNotFound { message: String },
-    #[snafu(display("A tagged file has been marked for deletion: {message}"))]
+    #[snafu(display("One or more tagged versions have been marked for cleanup: {message}"))]
     TaggedVersionMarkedForCleanup { message: String },
     #[snafu(display("Version not found error: {message}"))]
     VersionNotFound { message: String },

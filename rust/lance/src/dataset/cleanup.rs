@@ -210,17 +210,17 @@ impl<'a> CleanupTask<'a> {
     ) -> Result<()> {
         let tags = self.dataset.tags().await?;
 
-        let referenced_versions: HashSet<u64> = HashSet::from_iter(
+        let unreferenced_versions: HashSet<u64> = HashSet::from_iter(
             inspection
                 .old_manifests
                 .iter()
                 .map(|p| parse_version_from_path(p).unwrap()),
         );
 
-        let referenced_tags: HashMap<String, u64> = tags
+        let unreferenced_tags: HashMap<String, u64> = tags
             .iter()
             .filter_map(|(k, &v)| {
-                if referenced_versions.contains(&v.version) {
+                if unreferenced_versions.contains(&v.version) {
                     Some((k.clone(), v.version))
                 } else {
                     None
@@ -228,12 +228,12 @@ impl<'a> CleanupTask<'a> {
             })
             .collect();
 
-        match referenced_tags.len() {
+        match unreferenced_tags.len() {
             0 => Ok(()),
             _ => Err(Error::TaggedVersionMarkedForCleanup {
                 message: format!(
-                    "The following tags are preventing cleanup: {:?}",
-                    referenced_tags
+                    "Delete the following tags to enable cleanup: {:?}",
+                    unreferenced_tags
                 ),
             }),
         }
