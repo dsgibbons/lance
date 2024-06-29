@@ -40,13 +40,14 @@ use lance_io::object_store::ObjectStore;
 use lance_table::{
     format::{Index, Manifest},
     io::{
+        commit::parse_version_from_path,
         deletion::deletion_file_path,
         manifest::{read_manifest, read_manifest_indexes},
     },
 };
 use object_store::path::Path;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     future,
     sync::{Mutex, MutexGuard},
 };
@@ -113,6 +114,8 @@ impl<'a> CleanupTask<'a> {
         // First we process all manifest files in parallel to figure
         // out which files are referenced by valid manifests
         let inspection = self.process_manifests().await?;
+        self.check_unreferenced_files_are_not_tagged(&inspection)
+            .await?;
         self.delete_unreferenced_files(inspection).await
     }
 
@@ -199,6 +202,41 @@ impl<'a> CleanupTask<'a> {
             referenced_files.index_uuids.insert(uuid_str);
         }
         Ok(())
+    }
+
+    async fn check_unreferenced_files_are_not_tagged(
+        &self,
+        inspection: &CleanupInspection,
+    ) -> Result<()> {
+        let tags = self.dataset.tags().await?;
+
+        let referenced_versions: HashSet<u64> = HashSet::from_iter(
+            inspection
+                .old_manifests
+                .iter()
+                .map(|p| parse_version_from_path(p).unwrap()),
+        );
+
+        let referenced_tags: HashMap<String, u64> = tags
+            .iter()
+            .filter_map(|(k, &v)| {
+                if referenced_versions.contains(&v.version) {
+                    Some((k.clone(), v.version))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        match referenced_tags.len() {
+            0 => Ok(()),
+            _ => Err(Error::TaggedVersionMarkedForCleanup {
+                message: format!(
+                    "The following tags are preventing cleanup: {:?}",
+                    referenced_tags
+                ),
+            }),
+        }
     }
 
     async fn delete_unreferenced_files(
