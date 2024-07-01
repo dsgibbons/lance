@@ -84,6 +84,8 @@ pub enum Error {
     Cloned { message: String, location: Location },
     #[snafu(display("Query Execution error: {message}, {location}"))]
     Execution { message: String, location: Location },
+    #[snafu(display("Ref is invalid. Ref must confirm to git ref formatting rules: {message}"))]
+    InvalidRef { message: String },
     #[snafu(display("Tag conflict error: {message}"))]
     TagConflict { message: String },
     #[snafu(display("Tag not found error: {message}"))]
