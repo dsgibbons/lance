@@ -21,6 +21,21 @@ pub fn tag_path(base_path: &Path, tag: &str) -> Path {
     base_tags_path(base_path).child(format!("{}.json", tag))
 }
 
+impl TagContents {
+    pub async fn from_path(path: &Path, object_store: &ObjectStore) -> Result<Self> {
+        let tag_reader = object_store.open(path).await?;
+        let tag_bytes = tag_reader
+            .get_range(Range {
+                start: 0,
+                end: tag_reader.size().await?,
+            })
+            .await?;
+        Ok(serde_json::from_str(
+            String::from_utf8(tag_bytes.to_vec()).unwrap().as_str(),
+        )?)
+    }
+}
+
 pub fn check_valid_ref(s: &str) -> Result<()> {
     if s.is_empty() {
         return Err(Error::InvalidRef {
@@ -89,21 +104,6 @@ pub fn check_valid_ref(s: &str) -> Result<()> {
     }
 
     Ok(())
-}
-
-impl TagContents {
-    pub async fn from_path(path: &Path, object_store: &ObjectStore) -> Result<Self> {
-        let tag_reader = object_store.open(path).await?;
-        let tag_bytes = tag_reader
-            .get_range(Range {
-                start: 0,
-                end: tag_reader.size().await?,
-            })
-            .await?;
-        Ok(serde_json::from_str(
-            String::from_utf8(tag_bytes.to_vec()).unwrap().as_str(),
-        )?)
-    }
 }
 
 #[cfg(test)]

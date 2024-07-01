@@ -308,7 +308,7 @@ impl Dataset {
         let tag_file = tag_path(&self.base, tag);
 
         if !self.object_store().exists(&tag_file).await? {
-            return Err(Error::TagNotFound {
+            return Err(Error::RefNotFound {
                 message: format!("tag {} does not exist", tag),
             });
         }
@@ -1080,7 +1080,7 @@ impl Dataset {
         let tag_file = tag_path(&self.base, tag);
 
         if self.object_store().exists(&tag_file).await? {
-            return Err(Error::TagConflict {
+            return Err(Error::RefConflict {
                 message: format!("tag {} already exists", tag),
             });
         }
@@ -1115,7 +1115,7 @@ impl Dataset {
         let tag_file = tag_path(&self.base, tag);
 
         if !self.object_store().exists(&tag_file).await? {
-            return Err(Error::TagNotFound {
+            return Err(Error::RefNotFound {
                 message: format!("tag {} does not exist", tag),
             });
         }
@@ -2916,7 +2916,7 @@ mod tests {
         let bad_tag_deletion = dataset.delete_tag("tag1").await;
         assert_eq!(
             bad_tag_deletion.err().unwrap().to_string(),
-            "Tag not found error: tag tag1 does not exist"
+            "Ref not found error: tag tag1 does not exist"
         );
 
         dataset.create_tag("tag1", 1).await.unwrap();
@@ -2926,7 +2926,7 @@ mod tests {
         let another_bad_tag_creation = dataset.create_tag("tag1", 1).await;
         assert_eq!(
             another_bad_tag_creation.err().unwrap().to_string(),
-            "Tag conflict error: tag tag1 already exists"
+            "Ref conflict error: tag tag1 already exists"
         );
 
         dataset.delete_tag("tag1").await.unwrap();
@@ -2939,7 +2939,7 @@ mod tests {
         let bad_checkout = dataset.checkout_tag("tag3").await;
         assert_eq!(
             bad_checkout.err().unwrap().to_string(),
-            "Tag not found error: tag tag3 does not exist"
+            "Ref not found error: tag tag3 does not exist"
         );
 
         dataset = dataset.checkout_tag("tag1").await.unwrap();

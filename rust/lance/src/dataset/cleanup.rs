@@ -230,9 +230,10 @@ impl<'a> CleanupTask<'a> {
 
         match unreferenced_tags.len() {
             0 => Ok(()),
-            _ => Err(Error::TaggedVersionMarkedForCleanup {
+            _ => Err(Error::Cleanup {
                 message: format!(
-                    "Delete the following tags to enable cleanup: {:?}",
+                    "{} tagged version(s) have been marked for cleanup. Please delete the following tag(s) to enable cleanup: {:?}",
+                    unreferenced_tags.len(),
                     unreferenced_tags
                 ),
             }),
@@ -480,6 +481,7 @@ mod tests {
 
     use arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
     use arrow_array::{RecordBatchIterator, RecordBatchReader};
+    use datafusion::common::assert_contains;
     use lance_core::utils::testing::{MockClock, ProxyObjectStore, ProxyObjectStorePolicy};
     use lance_index::{DatasetIndexExt, IndexType};
     use lance_io::object_store::{ObjectStoreParams, WrappingObjectStore};
@@ -836,117 +838,60 @@ mod tests {
         assert_eq!(after_count.num_tx_files, 2);
     }
 
-    // #[tokio::test]
-    // async fn do_not_cleanup_tagged_versions() {
-    //     // We should not clean up old versions that are tagged. The
-    //     // user should be alerted that tags need to be deleted to
-    //     // allow cleanup.
-    //     let fixture = MockDatasetFixture::try_new().unwrap();
-    //     fixture.create_some_data().await.unwrap();
-    //     fixture.overwrite_some_data().await.unwrap();
+    #[tokio::test]
+    async fn do_not_cleanup_tagged_versions() {
+        // We should not clean up old versions that are tagged. The
+        // user should be alerted that tags need to be deleted to
+        // allow cleanup.
+        let fixture = MockDatasetFixture::try_new().unwrap();
+        fixture.create_some_data().await.unwrap();
+        fixture.overwrite_some_data().await.unwrap();
 
-    //     let mut dataset = *(fixture.open().await.unwrap());
+        let mut dataset = *(fixture.open().await.unwrap());
 
-    //     dataset.create_tag("old_tag", 1).await.unwrap();
-    //     dataset.create_tag("another_old_tag", 1).await.unwrap();
-    //     dataset.create_tag("tag-latest", dataset.latest_version_id().await.unwrap()).await.unwrap();
+        dataset.create_tag("old-tag", 1).await.unwrap();
+        dataset.create_tag("another-old-tag", 1).await.unwrap();
+        dataset
+            .create_tag("tag-latest", dataset.latest_version_id().await.unwrap())
+            .await
+            .unwrap();
 
-    //     fixture
-    //         .clock
-    //         .set_system_time(TimeDelta::try_days(10).unwrap());
+        fixture
+            .clock
+            .set_system_time(TimeDelta::try_days(10).unwrap());
 
-    //     let before_count = fixture.count_files().await.unwrap();
+        assert_contains!(
+            fixture
+            .run_cleanup(utc_now() - TimeDelta::try_days(8).unwrap())
+            .await.err().unwrap().to_string(),
+            "2 tagged version(s) have been marked for cleanup. Please delete the following tag(s) to enable cleanup:"
+        );
 
-    //     let removed = fixture
-    //         .run_cleanup(utc_now() - TimeDelta::try_days(8).unwrap())
-    //         .await
-    //         .unwrap();
+        dataset.delete_tag("old-tag").await.unwrap();
 
-    //     let after_count = fixture.count_files().await.unwrap();
-    //     assert_eq!(removed.old_versions, 1);
-    //     assert_eq!(
-    //         removed.bytes_removed,
-    //         before_count.num_bytes - after_count.num_bytes
-    //     );
+        assert_contains!(
+            fixture
+            .run_cleanup(utc_now() - TimeDelta::try_days(8).unwrap())
+            .await.err().unwrap().to_string(),
+            "1 tagged version(s) have been marked for cleanup. Please delete the following tag(s) to enable cleanup:"
+        );
 
-    //     // There should be one less data file
-    //     assert_lt!(after_count.num_data_files, before_count.num_data_files);
-    //     // And one less manifest file
-    //     assert_lt!(
-    //         after_count.num_manifest_files,
-    //         before_count.num_manifest_files
-    //     );
-    //     assert_lt!(after_count.num_tx_files, before_count.num_tx_files);
+        dataset.delete_tag("another-old-tag").await.unwrap();
 
-    //     // The latest manifest should still be there, even if it is older than
-    //     // the given time.
-    //     assert_gt!(after_count.num_manifest_files, 0);
-    //     assert_gt!(after_count.num_data_files, 0);
-    //     // We should keep referenced tx files
-    //     assert_gt!(after_count.num_tx_files, 0);
-    //     let fixture = MockDatasetFixture::try_new().unwrap();
-    //     fixture.create_some_data().await.unwrap();
-    //     fixture
-    //         .clock
-    //         .set_system_time(TimeDelta::try_days(10).unwrap());
-    //     fixture.append_some_data().await.unwrap();
-    //     fixture.append_some_data().await.unwrap();
+        let before_count = fixture.count_files().await.unwrap();
 
-    //     let before_count = fixture.count_files().await.unwrap();
+        let removed = fixture
+            .run_cleanup(utc_now() - TimeDelta::try_days(8).unwrap())
+            .await
+            .unwrap();
 
-    //     // 3 versions (plus one extra latest.manifest)
-    //     assert_eq!(before_count.num_data_files, 3);
-    //     assert_eq!(before_count.num_manifest_files, 4);
-
-    //     let before = utc_now() - TimeDelta::try_days(7).unwrap();
-    //     let removed = fixture.run_cleanup(before).await.unwrap();
-
-    //     let after_count = fixture.count_files().await.unwrap();
-
-    //     assert_eq!(removed.old_versions, 1);
-    //     assert_eq!(
-    //         removed.bytes_removed,
-    //         before_count.num_bytes - after_count.num_bytes
-    //     );
-
-    //     // The data files should all remain since they are referenced by
-    //     // the latest version
-    //     assert_eq!(after_count.num_data_files, 3);
-    //     // Only the oldest manifest file should be removed
-    //     assert_eq!(after_count.num_manifest_files, 3);
-    //     assert_eq!(after_count.num_tx_files, 2);
-    //     let fixture = MockDatasetFixture::try_new().unwrap();
-    //     fixture.create_some_data().await.unwrap();
-    //     fixture
-    //         .clock
-    //         .set_system_time(TimeDelta::try_days(10).unwrap());
-    //     fixture.append_some_data().await.unwrap();
-    //     fixture.append_some_data().await.unwrap();
-
-    //     let before_count = fixture.count_files().await.unwrap();
-
-    //     // 3 versions (plus one extra latest.manifest)
-    //     assert_eq!(before_count.num_data_files, 3);
-    //     assert_eq!(before_count.num_manifest_files, 4);
-
-    //     let before = utc_now() - TimeDelta::try_days(7).unwrap();
-    //     let removed = fixture.run_cleanup(before).await.unwrap();
-
-    //     let after_count = fixture.count_files().await.unwrap();
-
-    //     assert_eq!(removed.old_versions, 1);
-    //     assert_eq!(
-    //         removed.bytes_removed,
-    //         before_count.num_bytes - after_count.num_bytes
-    //     );
-
-    //     // The data files should all remain since they are referenced by
-    //     // the latest version
-    //     assert_eq!(after_count.num_data_files, 3);
-    //     // Only the oldest manifest file should be removed
-    //     assert_eq!(after_count.num_manifest_files, 3);
-    //     assert_eq!(after_count.num_tx_files, 2);
-    // }
+        let after_count = fixture.count_files().await.unwrap();
+        assert_eq!(removed.old_versions, 1);
+        assert_eq!(
+            removed.bytes_removed,
+            before_count.num_bytes - after_count.num_bytes
+        );
+    }
 
     #[tokio::test]
     async fn cleanup_recent_verified_files() {
