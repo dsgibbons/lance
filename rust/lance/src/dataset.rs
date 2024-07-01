@@ -2931,10 +2931,16 @@ mod tests {
 
         dataset.delete_tag("tag1").await.unwrap();
 
+        assert_eq!(dataset.tags().await.unwrap().len(), 0);
+
         dataset.create_tag("tag1", 1).await.unwrap();
         dataset.create_tag("tag2", 1).await.unwrap();
+        dataset
+            .create_tag("allowable-formatted_tag().chars", 1)
+            .await
+            .unwrap();
 
-        assert_eq!(dataset.tags().await.unwrap().len(), 2);
+        assert_eq!(dataset.tags().await.unwrap().len(), 3);
 
         let bad_checkout = dataset.checkout_tag("tag3").await;
         assert_eq!(
