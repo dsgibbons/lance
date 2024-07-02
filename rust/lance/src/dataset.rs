@@ -2935,10 +2935,7 @@ mod tests {
 
         dataset.create_tag("tag1", 1).await.unwrap();
         dataset.create_tag("tag2", 1).await.unwrap();
-        dataset
-            .create_tag("allowable-formatted_tag().chars", 1)
-            .await
-            .unwrap();
+        dataset.create_tag("v1.0.0-rc1", 1).await.unwrap();
 
         assert_eq!(dataset.tags().await.unwrap().len(), 3);
 

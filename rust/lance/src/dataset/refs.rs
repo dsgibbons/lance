@@ -43,63 +43,36 @@ pub fn check_valid_ref(s: &str) -> Result<()> {
         });
     }
 
-    for component in s.split('/') {
-        if component.starts_with('.') || component.ends_with(".lock") {
-            return Err(Error::InvalidRef {
-                message: "Slash-separated ref cannot begin with a dot or end with .lock"
-                    .to_string(),
-            });
-        }
-    }
-
-    if s.contains("..") {
-        return Err(Error::InvalidRef {
-            message: "Ref cannot have two consecutive dots".to_string(),
-        });
-    }
-
-    if s.chars()
-        .any(|c| c.is_control() || c == ' ' || c == '~' || c == '^' || c == ':')
+    if !s
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
     {
         return Err(Error::InvalidRef {
-            message: "Ref cannot have ASCII control characters, space, ~, ^, or :".to_string(),
+            message: "Ref characters must be either alphanumeric, '.', '-' or '_'".to_string(),
         });
     }
 
-    if s.contains('?') || s.contains('*') || s.contains('[') {
+    if s.starts_with('.') {
         return Err(Error::InvalidRef {
-            message: "Ref cannot have question-mark, asterisk, or open bracket".to_string(),
+            message: "Ref cannot begin with a dot".to_string(),
         });
     }
 
-    if s.starts_with('/') || s.ends_with('/') || s.contains("//") {
-        return Err(Error::InvalidRef {
-            message: "Ref cannot begin or end with a slash or contain multiple consecutive slashes"
-                .to_string(),
-        });
-    }
-
-    if s.ends_with("..") {
+    if s.ends_with(".") {
         return Err(Error::InvalidRef {
             message: "Ref cannot end with a dot".to_string(),
         });
     }
 
-    if s.contains("@{") {
+    if s.ends_with(".lock") {
         return Err(Error::InvalidRef {
-            message: "Ref cannot contain a sequence @{".to_string(),
+            message: "Ref cannot end with .lock".to_string(),
         });
     }
 
-    if s == "@" {
+    if s.contains("..") {
         return Err(Error::InvalidRef {
-            message: "Ref cannot be the single character @".to_string(),
-        });
-    }
-
-    if s.contains('\\') {
-        return Err(Error::InvalidRef {
-            message: "Ref cannot contain a backslash".to_string(),
+            message: "Ref cannot have two consecutive dots".to_string(),
         });
     }
 
@@ -116,11 +89,11 @@ mod tests {
     #[rstest]
     fn test_ok_ref(
         #[values(
-            "deeply/nested/ref",
-            "nested/ref.extension",
             "ref",
+            "ref-with-dashes",
             "ref.extension",
-            "ref_with_underscores"
+            "ref_with_underscores",
+            "v1.2.3-rc4"
         )]
         r: &str,
     ) {
@@ -135,7 +108,9 @@ mod tests {
             ".ref",
             "/ref",
             "@",
+            "deeply/nested/ref",
             "nested//ref",
+            "nested/ref",
             "nested\\ref",
             "ref*",
             "ref.lock",
@@ -150,7 +125,7 @@ mod tests {
     ) {
         assert_contains!(
             check_valid_ref(r).err().unwrap().to_string(),
-            "Ref is invalid. Ref must confirm to git ref formatting rules"
+            "Ref is invalid: Ref"
         );
     }
 }
