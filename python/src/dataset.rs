@@ -38,6 +38,7 @@ use lance::dataset::{
     WriteParams,
 };
 use lance::dataset::{BatchInfo, BatchUDF, NewColumnTransform, UDFCheckpointStore};
+use lance::index::scalar::ScalarIndexType;
 use lance::index::{scalar::ScalarIndexParams, vector::VectorIndexParams};
 use lance_arrow::as_fixed_size_list_array;
 use lance_core::datatypes::Schema;
@@ -433,6 +434,7 @@ impl Dataset {
         with_row_id: Option<bool>,
         use_stats: Option<bool>,
         substrait_filter: Option<Vec<u8>>,
+        fast_search: Option<bool>,
     ) -> PyResult<Scanner> {
         let mut scanner: LanceScanner = self_.ds.scan();
         match (columns, columns_with_transform) {
@@ -495,6 +497,10 @@ impl Dataset {
 
         if let Some(use_stats) = use_stats {
             scanner.use_stats(use_stats);
+        }
+
+        if let Some(true) = fast_search {
+            scanner.fast_search();
         }
 
         if let Some(fragments) = fragments {
@@ -574,6 +580,16 @@ impl Dataset {
                 true
             };
 
+            let ef: Option<usize> = if let Some(ef) = nearest.get_item("ef")? {
+                if ef.is_none() {
+                    None
+                } else {
+                    PyAny::downcast::<PyLong>(ef)?.extract()?
+                }
+            } else {
+                None
+            };
+
             scanner
                 .nearest(column.as_str(), &q, k)
                 .map(|s| {
@@ -583,6 +599,9 @@ impl Dataset {
                     }
                     if let Some(m) = metric_type {
                         s = s.distance_metric(m);
+                    }
+                    if let Some(ef) = ef {
+                        s = s.ef(ef);
                     }
                     s.use_index(use_index);
                     s
@@ -971,11 +990,12 @@ impl Dataset {
         index_type: &str,
         name: Option<String>,
         replace: Option<bool>,
+        storage_options: Option<HashMap<String, String>>,
         kwargs: Option<&PyDict>,
     ) -> PyResult<()> {
         let index_type = index_type.to_uppercase();
         let idx_type = match index_type.as_str() {
-            "BTREE" => IndexType::Scalar,
+            "BTREE" | "BITMAP" => IndexType::Scalar,
             "IVF_PQ" | "IVF_HNSW_PQ" | "IVF_HNSW_SQ" => IndexType::Vector,
             _ => {
                 return Err(PyValueError::new_err(format!(
@@ -987,12 +1007,17 @@ impl Dataset {
         // Only VectorParams are supported.
         let params: Box<dyn IndexParams> = if index_type == "BTREE" {
             Box::<ScalarIndexParams>::default()
+        } else if index_type == "BITMAP" {
+            Box::new(ScalarIndexParams {
+                // Temporary workaround until we add support for auto-detection of scalar index type
+                force_index_type: Some(ScalarIndexType::Bitmap),
+            })
         } else {
             let column_type = match self.ds.schema().field(columns[0]) {
                 Some(f) => f.data_type().clone(),
                 None => return Err(PyValueError::new_err("Column not found in dataset schema.")),
             };
-            prepare_vector_index_params(&index_type, &column_type, kwargs)?
+            prepare_vector_index_params(&index_type, &column_type, storage_options, kwargs)?
         };
 
         let replace = replace.unwrap_or(true);
@@ -1285,6 +1310,7 @@ pub fn get_write_params(options: &PyDict) -> PyResult<Option<WriteParams>> {
 fn prepare_vector_index_params(
     index_type: &str,
     column_type: &DataType,
+    storage_options: Option<HashMap<String, String>>,
     kwargs: Option<&PyDict>,
 ) -> PyResult<Box<dyn IndexParams>> {
     let mut m_type = MetricType::L2;
@@ -1311,6 +1337,10 @@ fn prepare_vector_index_params(
         // Parse IVF params
         if let Some(n) = kwargs.get_item("num_partitions")? {
             ivf_params.num_partitions = PyAny::downcast::<PyInt>(n)?.extract()?
+        };
+
+        if let Some(n) = kwargs.get_item("shuffle_partition_concurrency")? {
+            ivf_params.shuffle_partition_concurrency = PyAny::downcast::<PyInt>(n)?.extract()?
         };
 
         if let Some(c) = kwargs.get_item("ivf_centroids")? {
@@ -1342,6 +1372,10 @@ fn prepare_vector_index_params(
         if let Some(f) = kwargs.get_item("precomputed_partitions_file")? {
             ivf_params.precomputed_partitons_file = Some(f.to_string());
         };
+
+        if let Some(storage_options) = storage_options {
+            ivf_params.storage_options = Some(storage_options);
+        }
 
         match (
                 kwargs.get_item("precomputed_shuffle_buffers")?,
