@@ -27,7 +27,7 @@ use chrono::Duration;
 use arrow_array::Array;
 use futures::{StreamExt, TryFutureExt};
 use lance::dataset::builder::DatasetBuilder;
-use lance::dataset::refs::TagContents;
+use lance::dataset::refs::{Ref, TagContents};
 use lance::dataset::transaction::validate_operation;
 use lance::dataset::ColumnAlteration;
 use lance::dataset::{
@@ -863,17 +863,18 @@ impl Dataset {
             .map_err(|err| PyIOError::new_err(err.to_string()))
     }
 
-    fn checkout_version(&self, version: u64) -> PyResult<Self> {
-        let ds = RT
-            .block_on(None, self.ds.checkout_version(version))?
-            .map_err(|err| match err {
-                lance::Error::NotFound { .. } => PyValueError::new_err(err.to_string()),
-                _ => PyIOError::new_err(err.to_string()),
-            })?;
-        Ok(Self {
-            ds: Arc::new(ds),
-            uri: self.uri.clone(),
-        })
+    fn checkout_version(&self, py: Python, version: PyObject) -> PyResult<Self> {
+        if let Ok(i) = version.downcast::<PyInt>(py) {
+            let ref_: u64 = i.extract()?;
+            self._checkout_version(ref_)
+        } else if let Ok(v) = version.downcast::<PyString>(py) {
+            let ref_: &str = v.extract()?;
+            self._checkout_version(ref_)
+        } else {
+            Err(PyIOError::new_err(
+                "version must be an integer or a string.",
+            ))
+        }
     }
 
     /// Restore the current version
@@ -890,7 +891,7 @@ impl Dataset {
         &self,
         older_than_micros: i64,
         delete_unverified: Option<bool>,
-        error_if_old_versions_tagged: Option<bool>,
+        error_if_tagged_old_versions: Option<bool>,
     ) -> PyResult<CleanupStats> {
         let older_than = Duration::microseconds(older_than_micros);
         let cleanup_stats = RT
@@ -899,7 +900,7 @@ impl Dataset {
                 self.ds.cleanup_old_versions(
                     older_than,
                     delete_unverified,
-                    error_if_old_versions_tagged,
+                    error_if_tagged_old_versions,
                 ),
             )?
             .map_err(|err| PyIOError::new_err(err.to_string()))?;
@@ -923,19 +924,6 @@ impl Dataset {
                 pytags.set_item(k, dict).unwrap();
             }
             Ok(pytags.to_object(py))
-        })
-    }
-
-    fn checkout_tag(&self, tag: String) -> PyResult<Self> {
-        let ds = RT
-            .block_on(None, self.ds.checkout_tag(tag.as_str()))?
-            .map_err(|err| match err {
-                lance::Error::RefNotFound { .. } => PyValueError::new_err(err.to_string()),
-                _ => PyIOError::new_err(err.to_string()),
-            })?;
-        Ok(Self {
-            ds: Arc::new(ds),
-            uri: self.uri.clone(),
         })
     }
 
@@ -1196,6 +1184,20 @@ impl Dataset {
 }
 
 impl Dataset {
+    fn _checkout_version(&self, version: impl Into<Ref> + std::marker::Send) -> PyResult<Self> {
+        let ds = RT
+            .block_on(None, self.ds.checkout_version(version))?
+            .map_err(|err| match err {
+                lance::Error::NotFound { .. } => PyValueError::new_err(err.to_string()),
+                _ => PyIOError::new_err(err.to_string()),
+            })?;
+
+        Ok(Self {
+            ds: Arc::new(ds),
+            uri: self.uri.clone(),
+        })
+    }
+
     fn list_versions(&self) -> ::lance::error::Result<Vec<Version>> {
         RT.runtime.block_on(self.ds.versions())
     }
