@@ -8,11 +8,9 @@ use arrow_array::{RecordBatch, RecordBatchReader};
 use byteorder::{ByteOrder, LittleEndian};
 use chrono::{prelude::*, Duration};
 use deepsize::DeepSizeOf;
-use futures::future;
 use futures::future::BoxFuture;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use futures::{FutureExt, Stream};
-use itertools::Itertools;
 use lance_core::{datatypes::SchemaCompareOptions, traits::DatasetTakeRows};
 use lance_datafusion::utils::{peek_reader_schema, reader_to_stream};
 use lance_file::datatypes::populate_schema_dictionary;
@@ -55,7 +53,7 @@ mod write;
 use self::builder::DatasetBuilder;
 use self::cleanup::RemovalStats;
 use self::fragment::FileFragment;
-use self::refs::{base_tags_path, check_valid_ref, tag_path, TagContents};
+use self::refs::{check_valid_ref, tag_path, TagContents, Tags};
 use self::scanner::{DatasetRecordBatchStream, Scanner};
 use self::transaction::{Operation, Transaction};
 use self::write::write_fragments_internal;
@@ -99,6 +97,7 @@ pub struct Dataset {
     pub(crate) base: Path,
     pub(crate) manifest: Arc<Manifest>,
     pub(crate) session: Arc<Session>,
+    tags: Tags,
 }
 
 /// Dataset Version
@@ -402,6 +401,11 @@ impl Dataset {
         session: Arc<Session>,
         commit_handler: Arc<dyn CommitHandler>,
     ) -> Result<Self> {
+        let tags = Tags {
+            object_store: object_store.clone(),
+            commit_handler: commit_handler.clone(),
+            base: base_path.clone(),
+        };
         Ok(Self {
             object_store,
             base: base_path,
@@ -409,6 +413,7 @@ impl Dataset {
             manifest: Arc::new(manifest),
             commit_handler,
             session,
+            tags,
         })
     }
 
@@ -551,6 +556,12 @@ impl Dataset {
             .await?
         };
 
+        let tags = Tags {
+            object_store: object_store.clone(),
+            commit_handler: commit_handler.clone(),
+            base: base.clone(),
+        };
+
         Ok(Self {
             object_store,
             base,
@@ -558,6 +569,7 @@ impl Dataset {
             manifest: Arc::new(manifest.clone()),
             session: Arc::new(Session::default()),
             commit_handler,
+            tags,
         })
     }
 
@@ -853,13 +865,21 @@ impl Dataset {
             .await?
         };
 
+        let object_store = Arc::new(object_store);
+        let tags = Tags {
+            object_store: object_store.clone(),
+            commit_handler: commit_handler.clone(),
+            base: base.clone(),
+        };
+
         Ok(Self {
-            object_store: Arc::new(object_store),
+            object_store,
             base,
             uri: base_uri.to_string(),
             manifest: Arc::new(manifest.clone()),
             session: Arc::new(Session::default()),
             commit_handler,
+            tags,
         })
     }
 
@@ -1091,55 +1111,6 @@ impl Dataset {
             .await
     }
 
-    pub async fn create_tag(&mut self, tag: &str, version: u64) -> Result<()> {
-        check_valid_ref(tag)?;
-
-        let tag_file = tag_path(&self.base, tag);
-
-        if self.object_store().exists(&tag_file).await? {
-            return Err(Error::RefConflict {
-                message: format!("tag {} already exists", tag),
-            });
-        }
-
-        let manifest_file = self
-            .commit_handler
-            .resolve_version(&self.base, version, &self.object_store.inner)
-            .await?;
-
-        if !self.object_store().exists(&manifest_file).await? {
-            return Err(Error::VersionNotFound {
-                message: format!("version {} does not exist", version),
-            });
-        }
-
-        let tag_contents = TagContents {
-            version,
-            manifest_size: self.object_store().size(&manifest_file).await?,
-        };
-
-        self.object_store()
-            .put(
-                &tag_file,
-                serde_json::to_string_pretty(&tag_contents)?.as_bytes(),
-            )
-            .await
-    }
-
-    pub async fn delete_tag(&mut self, tag: &str) -> Result<()> {
-        check_valid_ref(tag)?;
-
-        let tag_file = tag_path(&self.base, tag);
-
-        if !self.object_store().exists(&tag_file).await? {
-            return Err(Error::RefNotFound {
-                message: format!("tag {} does not exist", tag),
-            });
-        }
-
-        self.object_store().delete(&tag_file).await
-    }
-
     pub(crate) fn object_store(&self) -> &ObjectStore {
         &self.object_store
     }
@@ -1199,40 +1170,6 @@ impl Dataset {
         versions.sort_by_key(|v| v.version);
 
         Ok(versions)
-    }
-
-    /// Get all tags.
-    pub async fn tags(&self) -> Result<HashMap<String, TagContents>> {
-        let mut tags = HashMap::<String, TagContents>::new();
-
-        let tag_files = self
-            .object_store()
-            .read_dir(base_tags_path(&self.base))
-            .await?;
-
-        let tag_names = tag_files
-            .iter()
-            .filter_map(|name| name.strip_suffix(".json"))
-            .map(|name| name.to_string())
-            .collect_vec();
-
-        futures::stream::iter(tag_names)
-            .map(|tag_name| {
-                let tag_file = tag_path(&self.base, &tag_name);
-                async move {
-                    let contents = TagContents::from_path(&tag_file, self.object_store()).await?;
-                    Ok((tag_name, contents))
-                }
-            })
-            .buffer_unordered(10)
-            .try_for_each(|result| {
-                let (tag_name, contents) = result;
-                tags.insert(tag_name, contents);
-                future::ready(Ok::<(), Error>(()))
-            })
-            .await?;
-
-        Ok(tags)
     }
 
     /// Get the latest version of the dataset
@@ -2947,39 +2884,39 @@ mod tests {
         dataset.delete("i > 50").await.unwrap();
         assert_eq!(dataset.manifest.version, 2);
 
-        assert_eq!(dataset.tags().await.unwrap().len(), 0);
+        assert_eq!(dataset.tags.list().await.unwrap().len(), 0);
 
-        let bad_tag_creation = dataset.create_tag("tag1", 3).await;
+        let bad_tag_creation = dataset.tags.create("tag1", 3).await;
         assert_eq!(
             bad_tag_creation.err().unwrap().to_string(),
             "Version not found error: version 3 does not exist"
         );
 
-        let bad_tag_deletion = dataset.delete_tag("tag1").await;
+        let bad_tag_deletion = dataset.tags.delete("tag1").await;
         assert_eq!(
             bad_tag_deletion.err().unwrap().to_string(),
             "Ref not found error: tag tag1 does not exist"
         );
 
-        dataset.create_tag("tag1", 1).await.unwrap();
+        dataset.tags.create("tag1", 1).await.unwrap();
 
-        assert_eq!(dataset.tags().await.unwrap().len(), 1);
+        assert_eq!(dataset.tags.list().await.unwrap().len(), 1);
 
-        let another_bad_tag_creation = dataset.create_tag("tag1", 1).await;
+        let another_bad_tag_creation = dataset.tags.create("tag1", 1).await;
         assert_eq!(
             another_bad_tag_creation.err().unwrap().to_string(),
             "Ref conflict error: tag tag1 already exists"
         );
 
-        dataset.delete_tag("tag1").await.unwrap();
+        dataset.tags.delete("tag1").await.unwrap();
 
-        assert_eq!(dataset.tags().await.unwrap().len(), 0);
+        assert_eq!(dataset.tags.list().await.unwrap().len(), 0);
 
-        dataset.create_tag("tag1", 1).await.unwrap();
-        dataset.create_tag("tag2", 1).await.unwrap();
-        dataset.create_tag("v1.0.0-rc1", 1).await.unwrap();
+        dataset.tags.create("tag1", 1).await.unwrap();
+        dataset.tags.create("tag2", 1).await.unwrap();
+        dataset.tags.create("v1.0.0-rc1", 1).await.unwrap();
 
-        assert_eq!(dataset.tags().await.unwrap().len(), 3);
+        assert_eq!(dataset.tags.list().await.unwrap().len(), 3);
 
         let bad_checkout = dataset.checkout_version("tag3").await;
         assert_eq!(
