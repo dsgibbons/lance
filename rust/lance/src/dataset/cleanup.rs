@@ -35,7 +35,7 @@
 
 use chrono::{DateTime, TimeDelta, Utc};
 use futures::{stream, StreamExt, TryStreamExt};
-use lance_core::Result;
+use lance_core::{Error, Result};
 use lance_table::{
     format::{Index, Manifest},
     io::{
@@ -436,48 +436,6 @@ pub async fn cleanup_old_versions(
         error_if_tagged_old_versions.unwrap_or(true),
     );
     cleanup.run().await
-}
-
-/// Force cleanup of specific partial writes.
-///
-/// These files can be cleaned up easily with [cleanup_old_versions()] after 7 days,
-/// but if you know specific partial writes have been made, you can call this
-/// function to clean them up immediately.
-///
-/// To find partial writes, you can use the
-/// [crate::dataset::progress::WriteFragmentProgress] trait to track which files
-/// have been started but never finished.
-pub async fn cleanup_partial_writes(
-    store: &ObjectStore,
-    base_path: &Path,
-    objects: impl IntoIterator<Item = (&Path, &String)>,
-) -> Result<()> {
-    futures::stream::iter(objects)
-        .map(Ok)
-        .try_for_each_concurrent(num_cpus::get() * 2, |(path, multipart_id)| async move {
-            let path: Path = base_path
-                .child("data")
-                .parts()
-                .chain(path.parts())
-                .collect();
-            match store.inner.abort_multipart(&path, multipart_id).await {
-                Ok(_) => Ok(()),
-                // We don't care if it's not there.
-                // TODO: once this issue is addressed, we should just use the error
-                // variant. https://github.com/apache/arrow-rs/issues/4749
-                // Err(object_store::Error::NotFound { .. }) => {
-                Err(e)
-                    if e.to_string().contains("No such file or directory")
-                        || e.to_string().contains("cannot find the file") =>
-                {
-                    log::warn!("Partial write not found: {} {}", path, multipart_id);
-                    Ok(())
-                }
-                Err(e) => Err(Error::from(e)),
-            }
-        })
-        .await?;
-    Ok(())
 }
 
 fn tagged_old_versions_cleanup_error(
