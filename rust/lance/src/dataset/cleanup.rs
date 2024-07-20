@@ -508,17 +508,9 @@ fn tagged_old_versions_cleanup_error(
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
-    use lance_core::{
-        utils::testing::{MockClock, ProxyObjectStore, ProxyObjectStorePolicy},
-        Error,
-    };
-    use arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
-    use arrow_array::{RecordBatchIterator, RecordBatchReader};
+    use arrow_array::RecordBatchReader;
     use datafusion::common::assert_contains;
-<<<<<<< HEAD
-=======
     use lance_core::utils::testing::{MockClock, ProxyObjectStore, ProxyObjectStorePolicy};
->>>>>>> 487cb4d6 (feat: error_if_tagged_old_versions error argument in cleanup_old_versions)
     use lance_index::{DatasetIndexExt, IndexType};
     use lance_io::object_store::{ObjectStore, ObjectStoreParams, WrappingObjectStore};
     use lance_linalg::distance::MetricType;
