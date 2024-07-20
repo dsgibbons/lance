@@ -31,12 +31,24 @@ impl From<&str> for Ref {
 
 #[derive(Debug, Clone)]
 pub struct Tags {
-    pub(crate) object_store: Arc<ObjectStore>,
-    pub(crate) commit_handler: Arc<dyn CommitHandler>,
-    pub(crate) base: Path,
+    object_store: Arc<ObjectStore>,
+    commit_handler: Arc<dyn CommitHandler>,
+    base: Path,
 }
 
 impl Tags {
+    pub fn new(
+        object_store: Arc<ObjectStore>,
+        commit_handler: Arc<dyn CommitHandler>,
+        base: Path,
+    ) -> Self {
+        Tags {
+            object_store: object_store,
+            commit_handler: commit_handler,
+            base: base,
+        }
+    }
+
     /// Get all tags.
     pub async fn list(&self) -> Result<HashMap<String, TagContents>> {
         let mut tags = HashMap::<String, TagContents>::new();

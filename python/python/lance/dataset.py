@@ -53,6 +53,7 @@ from .lance import CompactionMetrics as CompactionMetrics
 from .lance import __version__ as __version__
 from .lance import _Session as Session
 from .optimize import Compaction
+from .refs import Tags
 from .schema import LanceSchema
 from .util import td_to_micros
 
@@ -209,6 +210,10 @@ class LanceDataset(pa.dataset.Dataset):
         The location of the data
         """
         return self._uri
+
+    @property
+    def tags(self) -> Any:
+        return Tags(self._ds)
 
     def list_indices(self) -> List[Dict[str, Any]]:
         if getattr(self, "_list_indices_res", None) is None:
@@ -1109,23 +1114,6 @@ class LanceDataset(pa.dataset.Dataset):
             td_to_micros(older_than), delete_unverified, error_if_tagged_old_versions
         )
 
-    def tags(self) -> dict[str, int]:
-        """
-        Return all tags in this dataset.
-        """
-        return self._ds.tags()
-
-    def create_tag(self, tag: str, version: int) -> None:
-        """
-        Create a tag for a given dataset version.
-        """
-        self._ds.create_tag(tag, version)
-
-    def delete_tag(self, tag: str) -> None:
-        """
-        Delete tag from the dataset.
-        """
-        self._ds.delete_tag(tag)
 
     def create_scalar_index(
         self,

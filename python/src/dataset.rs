@@ -929,7 +929,7 @@ impl Dataset {
 
     fn create_tag(&mut self, tag: String, version: u64) -> PyResult<()> {
         let mut new_self = self.ds.as_ref().clone();
-        RT.block_on(None, new_self.create_tag(tag.as_str(), version))?
+        RT.block_on(None, new_self.tags.create(tag.as_str(), version))?
             .map_err(|err| match err {
                 lance::Error::NotFound { .. } => PyValueError::new_err(err.to_string()),
                 lance::Error::RefConflict { .. } => PyValueError::new_err(err.to_string()),
@@ -942,7 +942,7 @@ impl Dataset {
 
     fn delete_tag(&mut self, tag: String) -> PyResult<()> {
         let mut new_self = self.ds.as_ref().clone();
-        RT.block_on(None, new_self.delete_tag(tag.as_str()))?
+        RT.block_on(None, new_self.tags.delete(tag.as_str()))?
             .map_err(|err| match err {
                 lance::Error::NotFound { .. } => PyValueError::new_err(err.to_string()),
                 lance::Error::RefNotFound { .. } => PyValueError::new_err(err.to_string()),
@@ -1203,7 +1203,7 @@ impl Dataset {
     }
 
     fn list_tags(&self) -> ::lance::error::Result<HashMap<String, TagContents>> {
-        RT.runtime.block_on(self.ds.tags())
+        RT.runtime.block_on(self.ds.tags.list())
     }
 }
 

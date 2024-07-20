@@ -97,7 +97,7 @@ pub struct Dataset {
     pub(crate) base: Path,
     pub(crate) manifest: Arc<Manifest>,
     pub(crate) session: Arc<Session>,
-    tags: Tags,
+    pub tags: Tags,
 }
 
 /// Dataset Version
@@ -401,11 +401,11 @@ impl Dataset {
         session: Arc<Session>,
         commit_handler: Arc<dyn CommitHandler>,
     ) -> Result<Self> {
-        let tags = Tags {
-            object_store: object_store.clone(),
-            commit_handler: commit_handler.clone(),
-            base: base_path.clone(),
-        };
+        let tags = Tags::new(
+            object_store.clone(),
+            commit_handler.clone(),
+            base_path.clone(),
+        );
         Ok(Self {
             object_store,
             base: base_path,
@@ -556,11 +556,7 @@ impl Dataset {
             .await?
         };
 
-        let tags = Tags {
-            object_store: object_store.clone(),
-            commit_handler: commit_handler.clone(),
-            base: base.clone(),
-        };
+        let tags = Tags::new(object_store.clone(), commit_handler.clone(), base.clone());
 
         Ok(Self {
             object_store,
@@ -866,11 +862,7 @@ impl Dataset {
         };
 
         let object_store = Arc::new(object_store);
-        let tags = Tags {
-            object_store: object_store.clone(),
-            commit_handler: commit_handler.clone(),
-            base: base.clone(),
-        };
+        let tags = Tags::new(object_store.clone(), commit_handler.clone(), base.clone());
 
         Ok(Self {
             object_store,
