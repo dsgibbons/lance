@@ -3051,6 +3051,7 @@ mod tests {
         dataset.tags.create("tag1", 1).await.unwrap();
         dataset.tags.create("tag2", 1).await.unwrap();
         dataset.tags.create("v1.0.0-rc1", 1).await.unwrap();
+        dataset.tags.create("nested/ref", 1).await.unwrap();
 
         assert_eq!(dataset.tags.list().await.unwrap().len(), 3);
 

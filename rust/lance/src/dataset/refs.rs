@@ -180,7 +180,7 @@ pub fn check_valid_ref(s: &str) -> Result<()> {
 
     if !s
         .chars()
-        .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+        .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_' || c == '/')
     {
         return Err(Error::InvalidRef {
             message: "Ref characters must be either alphanumeric, '.', '-' or '_'".to_string(),
@@ -199,6 +199,18 @@ pub fn check_valid_ref(s: &str) -> Result<()> {
         });
     }
 
+    if s.starts_with('/') {
+        return Err(Error::InvalidRef {
+            message: "Ref cannot begin with a slash".to_string(),
+        });
+    }
+
+    if s.ends_with('/') {
+        return Err(Error::InvalidRef {
+            message: "Ref cannot end with a slash".to_string(),
+        });
+    }
+
     if s.ends_with(".lock") {
         return Err(Error::InvalidRef {
             message: "Ref cannot end with .lock".to_string(),
@@ -208,6 +220,12 @@ pub fn check_valid_ref(s: &str) -> Result<()> {
     if s.contains("..") {
         return Err(Error::InvalidRef {
             message: "Ref cannot have two consecutive dots".to_string(),
+        });
+    }
+
+    if s.contains("//") {
+        return Err(Error::InvalidRef {
+            message: "Ref cannot have two consecutive slashes".to_string(),
         });
     }
 
@@ -228,7 +246,9 @@ mod tests {
             "ref-with-dashes",
             "ref.extension",
             "ref_with_underscores",
-            "v1.2.3-rc4"
+            "v1.2.3-rc4",
+            "nested/ref",
+            "deeply/nested/ref"
         )]
         r: &str,
     ) {
@@ -241,12 +261,10 @@ mod tests {
             "",
             "../ref",
             ".ref",
-            "/ref",
             "@",
-            "deeply/nested/ref",
             "nested//ref",
-            "nested/ref",
             "nested\\ref",
+            "/ref",
             "ref*",
             "ref.lock",
             "ref/",
