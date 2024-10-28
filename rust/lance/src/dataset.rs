@@ -36,6 +36,7 @@ use rowids::get_row_id_index;
 use serde::{Deserialize, Serialize};
 use snafu::{location, Location};
 use std::borrow::Cow;
+use write::AutoCleanupParams;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 use std::pin::Pin;
