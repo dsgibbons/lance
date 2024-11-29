@@ -787,6 +787,16 @@ pub(crate) async fn commit_transaction(
                     .file_metadata_cache
                     .insert(cache_path, Arc::new(transaction.clone()));
 
+                if manifest.config.contains_key("auto_cleanup.interval")
+                    && manifest.config.contains_key("auto_cleanup.older_than")
+                    && manifest.version % manifest.config.get("auto_cleanup.interval") == 0
+                {
+                    dataset.cleanup_old_versions(
+                        manifest.config.get("auto_cleanup.older_than"),
+                        Some(false),
+                        Some(false),
+                    )
+                }
                 return Ok((manifest, manifest_path));
             }
             Err(CommitError::CommitConflict) => {
