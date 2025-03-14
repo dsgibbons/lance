@@ -453,6 +453,26 @@ pub async fn cleanup_old_versions(
     cleanup.run().await
 }
 
+pub async fn auto_clean_hook(
+    dataset: &Dataset,
+    manifest: &Manifest,
+) -> Option<Result<RemovalStats>> {
+    if let Some(older_than) = manifest.config.get("lance.auto_cleanup.older_than") {
+        if let Some(cleanup_interval) = manifest.config.get("lance.auto_cleanup.interval") {
+            let older_than: i64 = older_than.parse().unwrap(); // TODO: add proper error handling
+            let cleanup_interval: u64 = cleanup_interval.parse().unwrap(); // TODO: add proper error handling
+            if manifest.version % cleanup_interval == 0 {
+                return Some(
+                    dataset
+                        .cleanup_old_versions(TimeDelta::days(older_than), Some(false), Some(false))
+                        .await,
+                );
+            }
+        }
+    }
+    None
+}
+
 fn tagged_old_versions_cleanup_error(
     tags: &HashMap<String, TagContents>,
     tagged_old_versions: &HashSet<u64>,
@@ -944,6 +964,43 @@ mod tests {
             .unwrap();
 
         assert_eq!(removed.old_versions, 1);
+    }
+
+    #[tokio::test]
+    async fn auto_cleanup_old_versions() {
+        // Every n commits, all versions older than T should be deleted This
+        // test assumes the default case of n = 20, T = 2 weeks.
+        //
+        // This test first makes 15 commits and check that all of the versions are
+        // present. It then wait 20 days and make 5 more commits. We check that,
+        // without explicitly calling `fixture.run_cleanup`, the 15 old versions
+        // are automatically cleaned up and only 5 remain.
+        let fixture = MockDatasetFixture::try_new().unwrap();
+        fixture.create_some_data().await.unwrap();
+
+        for _ in 0..14 {
+            fixture.overwrite_some_data().await.unwrap();
+        }
+
+        fixture
+            .clock
+            .set_system_time(TimeDelta::try_days(20).unwrap());
+
+        let before_auto_clean_count = fixture.count_files().await.unwrap();
+
+        assert_eq!(before_auto_clean_count.num_data_files, 15);
+        assert_eq!(before_auto_clean_count.num_manifest_files, 15);
+        assert_eq!(before_auto_clean_count.num_tx_files, 15);
+
+        for _ in 0..5 {
+            fixture.overwrite_some_data().await.unwrap();
+        }
+
+        let after_auto_clean_count = fixture.count_files().await.unwrap();
+
+        assert_eq!(after_auto_clean_count.num_data_files, 5);
+        assert_eq!(after_auto_clean_count.num_manifest_files, 5);
+        assert_eq!(after_auto_clean_count.num_tx_files, 5);
     }
 
     #[tokio::test]
